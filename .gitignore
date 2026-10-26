@@ -1,0 +1,22 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+
+# virtualenv
+.venv/
+venv/
+
+# generated vector store (rebuilt by app.py, not source)
+preprocessed_db/
+
+# jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
