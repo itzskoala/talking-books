@@ -4,10 +4,6 @@ from pydantic import BaseModel, Field
 
 TESTS_DIR = Path(__file__).parent / "jsonl_tests"
 
-# Maps a test set (jsonl filename, no extension) to the pdf in books_data/ it tests.
-# Needed because the jsonl name is just a human-picked slug - it has no reliable
-# relationship to the book's real title, which only the AI title-extraction call
-# in ingest.py knows (and that's what the chroma metadata is actually filtered on).
 BOOK_PDF_MAP = {
     "declaration_of_indepedence": "declaration_of_indepedence.pdf",
     "dexter": "Darkly-Dreaming-Dexter.pdf",
@@ -22,7 +18,7 @@ class TestQuestion(BaseModel):
     question: str = Field(description="The question to ask the RAG system")
     keywords: list[str] = Field(description="Keywords that must appear in retrieved context")
     reference_answer: str = Field(description="The reference answer for this question")
-    source_chapter: str | int | list[int] | list[str] | None = Field(description="Which chapter(s) the context was found in, if known")
+    source_chapter: str | int | list[int] | list[str] | None = Field(description="Which chapter(s) the context was found in")
     category: str = Field(description="Question category (e.g., direct_fact, spanning, temporal)")
 
 

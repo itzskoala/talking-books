@@ -97,7 +97,7 @@ Since the conversation is contextual, understand the meaning of the user questio
 Condense everything in a single contextually-rich VERY short and specific question, most likely to surface content.
 
 EXAMPLE:
-user: Who is the founder? -> Query: who is the founder?
+user: Who is the guy who strarted this all? -> Query: who is the founder?
 assistant: The founder is FooBar
 user: What role covers? -> Query: What role FooBar covers?
 ...

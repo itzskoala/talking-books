@@ -1,16 +1,19 @@
 from pathlib import Path
 from chromadb import PersistentClient
 from litellm import embedding
+from tenacity import retry, wait_exponential, stop_after_attempt
 
 DB_NAME = str(Path(__file__).parent / "preprocessed_db")
 
+wait = wait_exponential(multiplier=1, min=10, max=240)
+stop = stop_after_attempt(3)
+
 
 class LiteLLMEmbeddings:
-    """Wraps litellm.embedding so any provider litellm supports can be used as an embedding model."""
-
     def __init__(self, model):
         self.model = model
 
+    @retry(wait=wait, stop=stop)
     def embed_documents(self, texts):
         response = embedding(model=self.model, input=texts)
         return [item["embedding"] for item in response.data]

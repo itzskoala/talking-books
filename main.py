@@ -2,8 +2,11 @@ import sys
 
 from providers import embeddings_for, EMBEDDING_MODELS, CHAT_MODELS
 from auto_regressive_llm import answer_question
-from testing.evaluations import resolve_book_name, evaluate_retrieval, evaluate_answer
-from testing.test import load_tests
+from ingest import fetch_selected_document
+from chunk import STRATEGIES, ingest_book
+from database_controls import clear_db, print_book_vectors
+from testing.evaluations import evaluate_retrieval, evaluate_answer
+from testing.test import load_tests, pdf_for_test_set
 
 
 def chat_with_book(question, book_name, embeddings, emb_model, chat_model):
@@ -21,7 +24,7 @@ def chat_with_book(question, book_name, embeddings, emb_model, chat_model):
 
 #this will need to be combined with the main gradio app, so two pages that are apart of one app, the evaluations doesn't load obviously until the user starts asking questions and the app runs/chunks/returns/ect...
 
-def run_cli_evaluation(test_set, embeddings, emb_model, model, test_number):
+def run_cli_evaluation(test_set, book_name, embeddings, emb_model, model, test_number):
     """Run evaluation for a specific test (CLI helper)."""
     print(f"\n{'=' * 80}")
     print(f"Test set: {test_set}")
@@ -29,7 +32,6 @@ def run_cli_evaluation(test_set, embeddings, emb_model, model, test_number):
     print(f"Autoregressive model: {model}")
     print(f"{'=' * 80}")
 
-    book_name = resolve_book_name(test_set, model)
     tests = load_tests(test_set)
     print(f"Loaded {len(tests)} tests from '{test_set}.jsonl'")
 
@@ -82,18 +84,35 @@ if __name__ == "__main__":
     test_number = 0
 
     # EMBEDDING_MODELS/CHAT_MODELS are defined in providers.py, all routed through OpenRouter
-    # except ollama (that one's Ollama Cloud directly). CHAT_MODELS order: 0 = gemini,
+    # except ollama (that one's Ollama Cloud directly). 
+     
+    #CHAT_MODELS order: 0 = gemini,
     # 1 = chatgpt/openai, 2 = ollama cloud, 3 = huggingface (open-weight). Only one
     # embedding model is listed - OpenRouter doesn't support embeddings for the others.
     emb_model = EMBEDDING_MODELS[0]
     chat_model = CHAT_MODELS[0]
     embeddings = embeddings_for(emb_model)
 
-    # resolve once so both the manual chat below and the evaluation below use the same book
-    book_name = resolve_book_name(test_set, chat_model)
+    chunk_strategy = STRATEGIES[0]
+    chunk_size = 2000
+    chunk_overlap = 200
+
+    clear_db_first = False
+    print_db_after = False
+
+    if clear_db_first:
+        clear_db(emb_model)
+
+    # ingest the book straight from books_data/ (chunk + embed, skipped if already embedded)
+    pdf_name = pdf_for_test_set(test_set)
+    document = fetch_selected_document(pdf_name, chat_model)
+    book_name = ingest_book(document, chunk_strategy, chunk_size, chunk_overlap, embeddings, emb_model)
+
+    if print_db_after:
+        print_book_vectors(book_name, emb_model)
 
     # 1. chat with the book directly and see the raw answer + context
     chat_with_book("What is Harry's numerical IQ score?", book_name, embeddings, emb_model, chat_model)
 
     # 2. run the formal test-set evaluation (retrieval metrics + LLM-judged answer score)
-    run_cli_evaluation(test_set, embeddings, emb_model, chat_model, test_number)
+    run_cli_evaluation(test_set, book_name, embeddings, emb_model, chat_model, test_number)

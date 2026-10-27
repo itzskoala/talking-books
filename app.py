@@ -5,30 +5,13 @@ import gradio as gr
 from dotenv import load_dotenv
 
 from ingest import KNOWLEDGE_BASE_PATH, list_books, fetch_selected_document, fetch_uploaded_document
-from chunk import create_chunks, STRATEGIES
-from encoding import create_embeddings
-from auto_regressive_llm import answer_question, get_collection
+from chunk import STRATEGIES, ingest_book
+from auto_regressive_llm import answer_question
 from providers import EMBEDDING_MODELS, CHAT_MODELS, embeddings_for
+from database_controls import clear_db
 from eval import build_eval_tab
 
 load_dotenv(override=True)
-
-
-def book_is_embedded(book_name, emb_model):
-    collection = get_collection(emb_model)
-    existing = collection.get(where={"name": book_name}, limit=1)
-    return len(existing["ids"]) > 0
-
-
-def ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, emb_model):
-    book_name = document["name"]
-    if book_is_embedded(book_name, emb_model):
-        print(f"'{book_name}' is already embedded with {emb_model}, skipping chunk+embed")
-        return book_name
-
-    chunks = create_chunks([document], strategy, chunk_size, chunk_overlap, embeddings)
-    create_embeddings(chunks, embeddings, emb_model)
-    return book_name
 
 
 def book_label(book_name):
@@ -61,6 +44,11 @@ def upload_book(file_path, strategy, chunk_size, chunk_overlap, chat_model, embe
     book_name = ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, embedding_model)
 
     return gr.Dropdown(choices=list_books(), value=destination.name), book_name, book_label(book_name), "", []
+
+
+def reset_everything(embedding_model):
+    clear_db(embedding_model)
+    return [], "", None, "*No book selected yet*", gr.Dropdown(choices=list_books(), value=None)
 
 
 def format_context(question, chunks):
@@ -100,9 +88,7 @@ def main():
 
                 with gr.Row():
                     with gr.Column(scale=1):
-                        chatbot = gr.Chatbot(
-                            label="💬 Conversation", height=500, type="messages", show_copy_button=True
-                        )
+                        chatbot = gr.Chatbot(label="💬 Conversation", height=500)
                         message = gr.Textbox(
                             label="Your Question",
                             placeholder="Ask anything about the book...",
@@ -126,6 +112,8 @@ def main():
                         with gr.Row():
                             chunk_size = gr.Slider(500, 4000, value=2000, step=100, label="Chunk Size")
                             chunk_overlap = gr.Slider(0, 500, value=200, step=50, label="Chunk Overlap")
+
+                        reset_button = gr.Button("🗑️ Reset Chat + Database")
 
                     with gr.Column(scale=1):
                         context_markdown = gr.Markdown(
@@ -159,6 +147,12 @@ def main():
                     chat,
                     inputs=[chatbot, book_name_state, context_markdown, embedding_model, chat_model],
                     outputs=[chatbot, context_markdown],
+                )
+
+                reset_button.click(
+                    reset_everything,
+                    inputs=[embedding_model],
+                    outputs=[chatbot, context_markdown, book_name_state, current_book_label, book_dropdown],
                 )
 
             with gr.Tab("📊 Evaluations"):

@@ -7,6 +7,8 @@ from langchain_text_splitters import (
 )
 
 from ingest import fetch_selected_document, list_books
+from encoding import create_embeddings
+from auto_regressive_llm import get_collection
 
 STRATEGIES = ["recursive", "markdown", "semantic", "token", "chapter", "hierarchical", "sliding_window"]
 
@@ -33,7 +35,6 @@ def split_text(text, strategy, chunk_size, chunk_overlap, embeddings):
         return [(chunk, {}) for chunk in splitter.split_text(text)]
 
     if strategy == "sliding_window":
-        # CharacterTextSplitter with no multi-separator fallback - a literal fixed-size overlapping window
         splitter = CharacterTextSplitter(separator=" ", chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         return [(chunk, {}) for chunk in splitter.split_text(text)]
 
@@ -49,8 +50,6 @@ def split_text(text, strategy, chunk_size, chunk_overlap, embeddings):
         return [(chunk, {}) for chunk in splitter.split_text(text)]
 
     if strategy == "hierarchical":
-        # langchain has no plain splitter for this, so this is a manual parent/child pass:
-        # big parent sections, each re-split into normal-sized child chunks that remember their parent.
         parent_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size * 4, chunk_overlap=0)
         child_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         pairs = []
@@ -59,7 +58,8 @@ def split_text(text, strategy, chunk_size, chunk_overlap, embeddings):
                 pairs.append((child_text, {"parent_content": parent_text}))
         return pairs
 
-    raise ValueError(f"Unknown chunking strategy: {strategy}")
+    else:
+        raise ValueError(f"Unknown chunking strategy: {strategy}")
 
 
 class Result(BaseModel):
@@ -78,6 +78,23 @@ def create_chunks(documents, strategy, chunk_size, chunk_overlap, embeddings=Non
 
     print(f"Divided into {len(results)} chunks using '{strategy}'")
     return results
+
+
+def book_already_exists(book_name, emb_model):
+    collection = get_collection(emb_model)
+    existing = collection.get(where={"name": book_name}, limit=1)
+    return len(existing["ids"]) > 0
+
+
+def ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, emb_model):
+    book_name = document["name"]
+    if book_already_exists(book_name, emb_model):
+        print(f"'{book_name}' is already embedded with {emb_model}, skipping chunk+embed")
+        return book_name
+
+    chunks = create_chunks([document], strategy, chunk_size, chunk_overlap, embeddings)
+    create_embeddings(chunks, embeddings, emb_model)
+    return book_name
 
 
 if __name__ == "__main__":
