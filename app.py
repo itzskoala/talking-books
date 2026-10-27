@@ -20,13 +20,13 @@ def book_label(book_name):
 
 def select_book(pdf_name, strategy, chunk_size, chunk_overlap, chat_model, embedding_model):
     if pdf_name is None:
-        return None, "*No book selected yet*", "", []
+        return None, "*No book selected yet*", "", [], gr.Textbox(interactive=False, placeholder="Select or upload a book first...")
 
     embeddings = embeddings_for(embedding_model)
     document = fetch_selected_document(pdf_name, chat_model)
     book_name = ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, embedding_model)
 
-    return book_name, book_label(book_name), "", []
+    return book_name, book_label(book_name), "", [], gr.Textbox(interactive=True, placeholder="Ask anything about the book...")
 
 
 def upload_book(file_path, strategy, chunk_size, chunk_overlap, chat_model, embedding_model):
@@ -43,12 +43,26 @@ def upload_book(file_path, strategy, chunk_size, chunk_overlap, chat_model, embe
 
     book_name = ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, embedding_model)
 
-    return gr.Dropdown(choices=list_books(), value=destination.name), book_name, book_label(book_name), "", []
+    return (
+        gr.Dropdown(choices=list_books(), value=destination.name),
+        book_name,
+        book_label(book_name),
+        "",
+        [],
+        gr.Textbox(interactive=True, placeholder="Ask anything about the book..."),
+    )
 
 
 def reset_everything(embedding_model):
     clear_db(embedding_model)
-    return [], "", None, "*No book selected yet*", gr.Dropdown(choices=list_books(), value=None)
+    return (
+        [],
+        "",
+        None,
+        "*No book selected yet*",
+        gr.Dropdown(choices=list_books(), value=None),
+        gr.Textbox(interactive=False, placeholder="Select or upload a book first..."),
+    )
 
 
 def format_context(question, chunks):
@@ -63,6 +77,8 @@ def chat(history, book_name, context_markdown, embedding_model, chat_model):
         raise gr.Error("Please select or upload a book first")
 
     question = history[-1]["content"]
+    if isinstance(question, list):
+        question = question[0]["text"]
     prior = history[:-1]
 
     embeddings = embeddings_for(embedding_model)
@@ -91,8 +107,9 @@ def main():
                         chatbot = gr.Chatbot(label="💬 Conversation", height=500)
                         message = gr.Textbox(
                             label="Your Question",
-                            placeholder="Ask anything about the book...",
+                            placeholder="Select or upload a book first...",
                             show_label=False,
+                            interactive=False,
                         )
 
                         gr.Markdown("### 📖 Book")
@@ -126,19 +143,19 @@ def main():
                 book_dropdown.change(
                     select_book,
                     inputs=[book_dropdown, chunk_strategy, chunk_size, chunk_overlap, chat_model, embedding_model],
-                    outputs=[book_name_state, current_book_label, context_markdown, chatbot],
+                    outputs=[book_name_state, current_book_label, context_markdown, chatbot, message],
                 )
 
                 embedding_model.change(
                     select_book,
                     inputs=[book_dropdown, chunk_strategy, chunk_size, chunk_overlap, chat_model, embedding_model],
-                    outputs=[book_name_state, current_book_label, context_markdown, chatbot],
+                    outputs=[book_name_state, current_book_label, context_markdown, chatbot, message],
                 )
 
                 file_upload.upload(
                     upload_book,
                     inputs=[file_upload, chunk_strategy, chunk_size, chunk_overlap, chat_model, embedding_model],
-                    outputs=[book_dropdown, book_name_state, current_book_label, context_markdown, chatbot],
+                    outputs=[book_dropdown, book_name_state, current_book_label, context_markdown, chatbot, message],
                 )
 
                 message.submit(
@@ -152,7 +169,7 @@ def main():
                 reset_button.click(
                     reset_everything,
                     inputs=[embedding_model],
-                    outputs=[chatbot, context_markdown, book_name_state, current_book_label, book_dropdown],
+                    outputs=[chatbot, context_markdown, book_name_state, current_book_label, book_dropdown, message],
                 )
 
             with gr.Tab("📊 Evaluations"):

@@ -1,6 +1,12 @@
+import os
+
+import litellm
 from litellm import completion
 
 from encoding import LiteLLMEmbeddings
+
+if os.environ.get("LITELLM_DEBUG") == "true":
+    litellm.turn_on_debug()
 
 EMBEDDING_MODELS = [
     "openrouter/openai/text-embedding-3-small",
