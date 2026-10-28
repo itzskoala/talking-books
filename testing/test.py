@@ -28,7 +28,10 @@ def load_tests(test_set):
     tests = []
     with open(test_file, "r", encoding="utf-8") as f:
         for line in f:
-            data = json.loads(line.strip())
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            data = json.loads(line)
             tests.append(TestQuestion(**data))
     return tests
 

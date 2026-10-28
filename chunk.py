@@ -1,3 +1,5 @@
+import re
+
 from pydantic import BaseModel
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
@@ -67,39 +69,67 @@ class Result(BaseModel):
     metadata: dict
 
 
+def chapter_offsets(text):
+    return [match.start() for match in re.finditer(CHAPTER_PATTERN, text)]
+
+
+def chapters_for_chunk(offsets, start, end):
+    """Chapter numbers (1-indexed) whose heading is at or before `start`, or falls within [start, end)."""
+    if start is None or not offsets:
+        return []
+    chapters = [i + 1 for i, offset in enumerate(offsets) if offset <= start]
+    chapters = chapters[-1:]
+    chapters += [i + 1 for i, offset in enumerate(offsets) if start < offset < end]
+    return chapters
+
+
 def create_chunks(documents, strategy, chunk_size, chunk_overlap, embeddings=None):
-    """Split each document with the selected splitter. No AI calls - these are all free,
-    local splitters (semantic uses the embedding model to find breakpoints, not a chat model)."""
+    """Split each document with the selected splitter"""
     results = []
     for document in documents:
-        for raw_text, extra_metadata in split_text(document["text"], strategy, chunk_size, chunk_overlap, embeddings):
-            metadata = {"source": document["source"], "name": document["name"], **extra_metadata}
+        text = document["text"]
+        offsets = chapter_offsets(text)
+        cursor = 0
+        for i, (raw_text, extra_metadata) in enumerate(split_text(text, strategy, chunk_size, chunk_overlap, embeddings)):
+            start = text.find(raw_text, cursor)
+            if start == -1:
+                start = text.find(raw_text)
+            cursor = start + len(raw_text) if start != -1 else cursor
+            chapters = chapters_for_chunk(offsets, start, cursor)
+
+            metadata = {
+                "id": document["id"],
+                "source": document["source"],
+                "name": document["name"],
+                "chunk_index": i,
+                "chapters": ",".join(str(c) for c in chapters),  # Chroma metadata must be flat scalars, not lists
+                **extra_metadata,
+            }
             results.append(Result(page_content=raw_text, metadata=metadata))
 
     print(f"Divided into {len(results)} chunks using '{strategy}'")
     return results
 
 
-def book_already_exists(book_name, emb_model):
+def book_already_exists(book_id, emb_model):
     collection = get_collection(emb_model)
-    existing = collection.get(where={"name": book_name}, limit=1)
+    existing = collection.get(where={"id": book_id}, limit=1)
     return len(existing["ids"]) > 0
 
 
 def ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, emb_model):
-    book_name = document["name"]
-    if book_already_exists(book_name, emb_model):
-        print(f"'{book_name}' is already embedded with {emb_model}, skipping chunk+embed")
-        return book_name
+    if book_already_exists(document["id"], emb_model):
+        print(f"'{document['name']}' is already embedded with {emb_model}, skipping chunk+embed")
+        return document
 
     chunks = create_chunks([document], strategy, chunk_size, chunk_overlap, embeddings)
     create_embeddings(chunks, embeddings, emb_model)
-    return book_name
+    return document
 
 
-if __name__ == "__main__":
-    model = "openai/gpt-4.1-nano"
-    chunk_size = 2000
-    chunk_overlap = 200
-    documents = [fetch_selected_document(book_name, model) for book_name in list_books()]
-    chunks = create_chunks(documents, "recursive", chunk_size, chunk_overlap)
+# if __name__ == "__main__":
+#     model = "openai/gpt-4.1-nano"
+#     chunk_size = 2000
+#     chunk_overlap = 200
+#     documents = [fetch_selected_document(book_name, model) for book_name in list_books()]
+#     chunks = create_chunks(documents, "recursive", chunk_size, chunk_overlap)

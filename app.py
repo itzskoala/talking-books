@@ -24,9 +24,9 @@ def select_book(pdf_name, strategy, chunk_size, chunk_overlap, chat_model, embed
 
     embeddings = embeddings_for(embedding_model)
     document = fetch_selected_document(pdf_name, chat_model)
-    book_name = ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, embedding_model)
+    book = ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, embedding_model)
 
-    return book_name, book_label(book_name), "", [], gr.Textbox(interactive=True, placeholder="Ask anything about the book...")
+    return book, book_label(book["name"]), "", [], gr.Textbox(interactive=True, placeholder="Ask anything about the book...")
 
 
 def upload_book(file_path, strategy, chunk_size, chunk_overlap, chat_model, embedding_model):
@@ -41,20 +41,25 @@ def upload_book(file_path, strategy, chunk_size, chunk_overlap, chat_model, embe
     if not destination.exists():
         shutil.copy(file_path, destination)
 
-    book_name = ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, embedding_model)
+    book = ingest_book(document, strategy, chunk_size, chunk_overlap, embeddings, embedding_model)
 
     return (
         gr.Dropdown(choices=list_books(), value=destination.name),
-        book_name,
-        book_label(book_name),
+        book,
+        book_label(book["name"]),
         "",
         [],
         gr.Textbox(interactive=True, placeholder="Ask anything about the book..."),
     )
 
 
-def reset_everything(embedding_model):
-    clear_db(embedding_model)
+def reset_chat():
+    return [], ""
+
+
+def reset_everything(embedding_model, book):
+    if book is not None:
+        clear_db(embedding_model, book["id"])
     return (
         [],
         "",
@@ -66,14 +71,17 @@ def reset_everything(embedding_model):
 
 
 def format_context(question, chunks):
-    block = f"### Q: {question}\n\n"
+    block = f"---\n\n### Q: {question}\n\n"
     for chunk in chunks:
-        block += f"**Source:** {chunk.metadata['source']}\n\n{chunk.page_content}\n\n---\n\n"
+        chapters = chunk.metadata.get("chapters") or ""
+        chapters = [int(c) for c in chapters.split(",") if c.strip().isdigit()]
+        chunk_index = chunk.metadata.get("chunk_index")
+        block += f"**Source:** Chapters: {chapters}, Chunk #{chunk_index}\n\n{chunk.page_content}\n\n---\n\n"
     return block
 
 
-def chat(history, book_name, context_markdown, embedding_model, chat_model):
-    if book_name is None:
+def chat(history, book, context_markdown, embedding_model, chat_model):
+    if book is None:
         raise gr.Error("Please select or upload a book first")
 
     question = history[-1]["content"]
@@ -83,10 +91,10 @@ def chat(history, book_name, context_markdown, embedding_model, chat_model):
 
     embeddings = embeddings_for(embedding_model)
 
-    answer, chunks = answer_question(question, book_name, embeddings, embedding_model, chat_model, prior)
+    answer, chunks = answer_question(question, book["id"], book["name"], embeddings, embedding_model, chat_model, prior)
     history.append({"role": "assistant", "content": answer})
 
-    return history, context_markdown + format_context(question, chunks)
+    return history, format_context(question, chunks) + context_markdown
 
 
 def main():
@@ -130,7 +138,7 @@ def main():
                             chunk_size = gr.Slider(500, 4000, value=2000, step=100, label="Chunk Size")
                             chunk_overlap = gr.Slider(0, 500, value=200, step=50, label="Chunk Overlap")
 
-                        reset_button = gr.Button("🗑️ Reset Chat + Database")
+                        reset_button = gr.Button("🗑️ Reset Current Book + Chat")
 
                     with gr.Column(scale=1):
                         context_markdown = gr.Markdown(
@@ -140,25 +148,7 @@ def main():
                             height=700,
                         )
 
-                book_dropdown.change(
-                    select_book,
-                    inputs=[book_dropdown, chunk_strategy, chunk_size, chunk_overlap, chat_model, embedding_model],
-                    outputs=[book_name_state, current_book_label, context_markdown, chatbot, message],
-                )
-
-                embedding_model.change(
-                    select_book,
-                    inputs=[book_dropdown, chunk_strategy, chunk_size, chunk_overlap, chat_model, embedding_model],
-                    outputs=[book_name_state, current_book_label, context_markdown, chatbot, message],
-                )
-
-                file_upload.upload(
-                    upload_book,
-                    inputs=[file_upload, chunk_strategy, chunk_size, chunk_overlap, chat_model, embedding_model],
-                    outputs=[book_dropdown, book_name_state, current_book_label, context_markdown, chatbot, message],
-                )
-
-                message.submit(
+                chat_event = message.submit(
                     put_message_in_chatbot, inputs=[message, chatbot], outputs=[message, chatbot]
                 ).then(
                     chat,
@@ -166,9 +156,34 @@ def main():
                     outputs=[chatbot, context_markdown],
                 )
 
+                book_select_event = book_dropdown.change(
+                    select_book,
+                    inputs=[book_dropdown, chunk_strategy, chunk_size, chunk_overlap, chat_model, embedding_model],
+                    outputs=[book_name_state, current_book_label, context_markdown, chatbot, message],
+                    cancels=[chat_event],
+                )
+
+                embedding_select_event = embedding_model.change(
+                    select_book,
+                    inputs=[book_dropdown, chunk_strategy, chunk_size, chunk_overlap, chat_model, embedding_model],
+                    outputs=[book_name_state, current_book_label, context_markdown, chatbot, message],
+                    cancels=[chat_event, book_select_event],
+                )
+
+                chat_model.change(
+                    reset_chat, outputs=[chatbot, context_markdown], cancels=[chat_event]
+                )
+
+                file_upload.upload(
+                    upload_book,
+                    inputs=[file_upload, chunk_strategy, chunk_size, chunk_overlap, chat_model, embedding_model],
+                    outputs=[book_dropdown, book_name_state, current_book_label, context_markdown, chatbot, message],
+                    cancels=[chat_event, book_select_event, embedding_select_event],
+                )
+
                 reset_button.click(
                     reset_everything,
-                    inputs=[embedding_model],
+                    inputs=[embedding_model, book_name_state],
                     outputs=[chatbot, context_markdown, book_name_state, current_book_label, book_dropdown, message],
                 )
 

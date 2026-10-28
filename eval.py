@@ -1,3 +1,4 @@
+import time
 import gradio as gr
 import pandas as pd
 from collections import defaultdict
@@ -70,8 +71,22 @@ def format_metric_html(label, value, metric_type, is_percentage=False, score_for
     """
 
 
+retrieval_running = False
+retrieval_paused = False
+answer_running = False
+answer_paused = False
+
+
 def run_retrieval_evaluation(test_set, embedding_model, chat_model, progress=gr.Progress()):
-    """Run retrieval evaluation and return the summary HTML + per-category chart data."""
+    global retrieval_running, retrieval_paused
+
+    if retrieval_running:
+        retrieval_paused = not retrieval_paused
+        return gr.skip(), gr.skip()
+
+    retrieval_running = True
+    retrieval_paused = False
+
     embeddings = embeddings_for(embedding_model)
 
     total_mrr = 0.0
@@ -81,12 +96,17 @@ def run_retrieval_evaluation(test_set, embedding_model, chat_model, progress=gr.
     count = 0
 
     for test, result, prog_value in evaluate_all_retrieval(test_set, embeddings, embedding_model, chat_model):
+        while retrieval_paused:
+            progress(prog_value, desc="Paused - click Run Evaluation again to resume")
+            time.sleep(0.5)
         count += 1
         total_mrr += result.mrr
         total_ndcg += result.ndcg
         total_coverage += result.keyword_coverage
         category_mrr[test.category].append(result.mrr)
         progress(prog_value, desc=f"Evaluating test {count}...")
+
+    retrieval_running = False
 
     avg_mrr = total_mrr / count
     avg_ndcg = total_ndcg / count
@@ -113,7 +133,15 @@ def run_retrieval_evaluation(test_set, embedding_model, chat_model, progress=gr.
 
 
 def run_answer_evaluation(test_set, embedding_model, chat_model, progress=gr.Progress()):
-    """Run answer evaluation and return the summary HTML + per-category chart data."""
+    global answer_running, answer_paused
+
+    if answer_running:
+        answer_paused = not answer_paused
+        return gr.skip(), gr.skip()
+
+    answer_running = True
+    answer_paused = False
+
     embeddings = embeddings_for(embedding_model)
 
     total_accuracy = 0.0
@@ -123,12 +151,17 @@ def run_answer_evaluation(test_set, embedding_model, chat_model, progress=gr.Pro
     count = 0
 
     for test, result, prog_value in evaluate_all_answers(test_set, embeddings, embedding_model, chat_model):
+        while answer_paused:
+            progress(prog_value, desc="Paused - click Run Evaluation again to resume")
+            time.sleep(0.5)
         count += 1
         total_accuracy += result.accuracy
         total_completeness += result.completeness
         total_relevance += result.relevance
         category_accuracy[test.category].append(result.accuracy)
         progress(prog_value, desc=f"Evaluating test {count}...")
+
+    answer_running = False
 
     avg_accuracy = total_accuracy / count
     avg_completeness = total_completeness / count
@@ -174,7 +207,7 @@ def build_eval_tab():
             )
         with gr.Column(scale=1):
             retrieval_chart = gr.BarPlot(
-                x="Category", y="Average MRR", title="Average MRR by Category", y_lim=[0, 1], height=400
+                x="Category", y="Average MRR", title="Average MRR by Category", y_lim=[0, 1], height=450, x_label_angle=-40
             )
 
     gr.Markdown("## 💬 Answer Evaluation")
@@ -187,11 +220,11 @@ def build_eval_tab():
             )
         with gr.Column(scale=1):
             answer_chart = gr.BarPlot(
-                x="Category", y="Average Accuracy", title="Average Accuracy by Category", y_lim=[1, 5], height=400
+                x="Category", y="Average Accuracy", title="Average Accuracy by Category", y_lim=[1, 5], height=450, x_label_angle=-40
             )
 
-    retrieval_button.click(fn=run_retrieval_evaluation, inputs=[test_set, embedding_model, chat_model], outputs=[retrieval_metrics, retrieval_chart])
-    answer_button.click(fn=run_answer_evaluation, inputs=[test_set, embedding_model, chat_model], outputs=[answer_metrics, answer_chart])
+    retrieval_button.click(fn=run_retrieval_evaluation, inputs=[test_set, embedding_model, chat_model], outputs=[retrieval_metrics, retrieval_chart], concurrency_limit=2)
+    answer_button.click(fn=run_answer_evaluation, inputs=[test_set, embedding_model, chat_model], outputs=[answer_metrics, answer_chart], concurrency_limit=2)
 
 
 def main():

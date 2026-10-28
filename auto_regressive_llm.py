@@ -117,22 +117,22 @@ def merge_chunks(chunks, reranked):
     return merged
 
 
-def fetch_context_unranked(question, book_name, embeddings, emb_model):
+def fetch_context_unranked(question, book_id, embeddings, emb_model):
     query = embeddings.embed_query(question)
     collection = get_collection(emb_model)
-    results = collection.query(query_embeddings=[query], n_results=RETRIEVAL_K, where={"name": book_name})
+    results = collection.query(query_embeddings=[query], n_results=RETRIEVAL_K, where={"id": book_id})
     chunks = []
     for result in zip(results["documents"][0], results["metadatas"][0]):
         chunks.append(Result(page_content=result[0], metadata=result[1]))
     return chunks
 
 
-def fetch_context(original_question, book_name, embeddings, emb_model, model, history=None):
+def fetch_context(original_question, book_id, embeddings, emb_model, model, history=None):
     rewritten_question = rewrite_query(original_question, model, history)
     print(rewritten_question)
 
-    chunks_unadjusted = fetch_context_unranked(original_question, book_name, embeddings, emb_model)
-    chunks_adjusted = fetch_context_unranked(rewritten_question, book_name, embeddings, emb_model)
+    chunks_unadjusted = fetch_context_unranked(original_question, book_id, embeddings, emb_model)
+    chunks_adjusted = fetch_context_unranked(rewritten_question, book_id, embeddings, emb_model)
     chunks = merge_chunks(chunks_unadjusted, chunks_adjusted)
 
     reranked = rerank(original_question, chunks, model)
@@ -140,12 +140,12 @@ def fetch_context(original_question, book_name, embeddings, emb_model, model, hi
 
 
 @retry(wait=wait, stop=stop)
-def answer_question(question, book_name, embeddings, emb_model, model, history=None):
+def answer_question(question, book_id, book_name, embeddings, emb_model, model, history=None):
     """Answer a question using RAG and return the answer and the retrieved context."""
     if history is None:
         history = []
 
-    chunks = fetch_context(question, book_name, embeddings, emb_model, model, history)
+    chunks = fetch_context(question, book_id, embeddings, emb_model, model, history)
     messages = make_rag_messages(question, history, chunks, book_name)
     response = chat(model, messages)
     return response.choices[0].message.content, chunks

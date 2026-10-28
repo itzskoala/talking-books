@@ -9,9 +9,9 @@ from testing.evaluations import evaluate_retrieval, evaluate_answer
 from testing.test import load_tests, pdf_for_test_set
 
 
-def chat_with_book(question, book_name, embeddings, emb_model, chat_model):
+def chat_with_book(question, book_id, book_name, embeddings, emb_model, chat_model):
     """Ask the RAG pipeline one question directly (no jsonl test involved) and print the result."""
-    answer, chunks = answer_question(question, book_name, embeddings, emb_model, chat_model)
+    answer, chunks = answer_question(question, book_id, book_name, embeddings, emb_model, chat_model)
 
     print(f"\n{'=' * 80}")
     print(f"Q: {question}")
@@ -24,7 +24,7 @@ def chat_with_book(question, book_name, embeddings, emb_model, chat_model):
 
 #this will need to be combined with the main gradio app, so two pages that are apart of one app, the evaluations doesn't load obviously until the user starts asking questions and the app runs/chunks/returns/ect...
 
-def run_cli_evaluation(test_set, book_name, embeddings, emb_model, model, test_number):
+def run_cli_evaluation(test_set, book_id, book_name, embeddings, emb_model, model, test_number):
     """Run evaluation for a specific test (CLI helper)."""
     print(f"\n{'=' * 80}")
     print(f"Test set: {test_set}")
@@ -54,7 +54,7 @@ def run_cli_evaluation(test_set, book_name, embeddings, emb_model, model, test_n
     print(f"{'=' * 80}")
     print("Fetching context (rewrite + unadjusted/adjusted retrieval + merge + rerank)...")
 
-    retrieval_result = evaluate_retrieval(test, book_name, embeddings, emb_model, model)
+    retrieval_result = evaluate_retrieval(test, book_id, embeddings, emb_model, model)
 
     print(f"MRR: {retrieval_result.mrr:.4f}")
     print(f"nDCG: {retrieval_result.ndcg:.4f}")
@@ -66,7 +66,7 @@ def run_cli_evaluation(test_set, book_name, embeddings, emb_model, model, test_n
     print(f"{'=' * 80}")
     print("Generating answer, then asking the LLM judge to score it...")
 
-    answer_result, generated_answer, retrieved_docs = evaluate_answer(test, book_name, embeddings, emb_model, model)
+    answer_result, generated_answer, retrieved_docs = evaluate_answer(test, book_id, book_name, embeddings, emb_model, model)
 
     print(f"\nGenerated Answer:\n{generated_answer}")
     print(f"\nFeedback:\n{answer_result.feedback}")
@@ -100,19 +100,20 @@ if __name__ == "__main__":
     clear_db_first = False
     print_db_after = False
 
-    if clear_db_first:
-        clear_db(emb_model)
-
     # ingest the book straight from books_data/ (chunk + embed, skipped if already embedded)
     pdf_name = pdf_for_test_set(test_set)
     document = fetch_selected_document(pdf_name, chat_model)
-    book_name = ingest_book(document, chunk_strategy, chunk_size, chunk_overlap, embeddings, emb_model)
+
+    if clear_db_first:
+        clear_db(emb_model, document["id"])
+
+    book = ingest_book(document, chunk_strategy, chunk_size, chunk_overlap, embeddings, emb_model)
 
     if print_db_after:
-        print_book_vectors(book_name, emb_model)
+        print_book_vectors(book["id"], emb_model)
 
     # 1. chat with the book directly and see the raw answer + context
-    chat_with_book("What is Harry's numerical IQ score?", book_name, embeddings, emb_model, chat_model)
+    chat_with_book("What is Harry's numerical IQ score?", book["id"], book["name"], embeddings, emb_model, chat_model)
 
     # 2. run the formal test-set evaluation (retrieval metrics + LLM-judged answer score)
-    run_cli_evaluation(test_set, book_name, embeddings, emb_model, chat_model, test_number)
+    run_cli_evaluation(test_set, book["id"], book["name"], embeddings, emb_model, chat_model, test_number)

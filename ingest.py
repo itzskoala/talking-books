@@ -32,6 +32,11 @@ def find_title(markdown, model):
     return Title.model_validate_json(reply).title
 
 
+def book_id(file):
+    """Stable identifier for a book, independent of which chat model is asked for its title."""
+    return Path(file).stem
+
+
 def fetch_uploaded_document(file_path, model):
     """For when a user drops in their own pdf."""
     file = Path(file_path)
@@ -40,7 +45,7 @@ def fetch_uploaded_document(file_path, model):
 
     markdown = pdf_to_markdown(file)
     name = find_title(markdown, model)
-    return {"source": file.as_posix(), "name": name, "text": markdown}
+    return {"id": book_id(file), "source": file.as_posix(), "name": name, "text": markdown}
 
 
 def fetch_selected_document(book_name, model):
@@ -48,7 +53,7 @@ def fetch_selected_document(book_name, model):
     file = KNOWLEDGE_BASE_PATH / book_name
     markdown = pdf_to_markdown(file)
     name = find_title(markdown, model)
-    return {"source": file.as_posix(), "name": name, "text": markdown}
+    return {"id": book_id(file), "source": file.as_posix(), "name": name, "text": markdown}
 
 
 def list_books():
